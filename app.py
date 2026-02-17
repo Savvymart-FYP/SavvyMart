@@ -2,7 +2,7 @@ import pandas as pd
 import os
 from flask import Flask, render_template, jsonify
 import numpy as np
- app = 4
+app = 4
 app = Flask(__name__)
 
 # Path setup
