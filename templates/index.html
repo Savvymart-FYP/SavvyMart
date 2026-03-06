@@ -45,11 +45,13 @@
                 </div>
             </div>
 
-            <div class="search-container">
-                <i class="fas fa-search search-icon"></i>
-                <input type="text" id="mainSearch" autocomplete="off" placeholder="Search products, brands...">
-
-                <div id="searchSuggestions" class="search-suggestions"></div>
+            <div class="search-container" style="display: flex; gap: 8px;">
+                <div style="position: relative; flex-grow: 1;">
+                    <i class="fas fa-search search-icon" onclick="triggerSearch()" style="cursor: pointer; z-index: 10;"></i>
+                    <input type="text" id="mainSearch" autocomplete="off" placeholder="Search (e.g., sasty joty)..." onkeypress="if(event.key === 'Enter') triggerSearch()">
+                    <div id="searchSuggestions" class="search-suggestions"></div>
+                </div>
+                <button onclick="triggerSearch()" style="background: var(--primary); color: white; border: none; padding: 0 15px; border-radius: 8px; cursor: pointer; font-weight: bold; white-space: nowrap;">Search</button>
             </div>
 
             <nav class="desktop-menu">
@@ -248,6 +250,46 @@
         let currentMode = 'market';
         let compareList = [];
         let allBrandsSelected = false;
+        let aiKeywords = []; 
+
+        // --- SEAMLESS AI SEARCH LOGIC ---
+        async function triggerSearch() {
+            const inputField = document.getElementById('mainSearch');
+            const statsLabel = document.getElementById('stats-label');
+            const query = inputField.value.trim();
+
+            document.getElementById('searchSuggestions').style.display = 'none';
+
+            if (!query) {
+                aiKeywords = [];
+                applyFilters();
+                return;
+            }
+
+            if (statsLabel) statsLabel.innerText = "⏳ Processing search...";
+            
+            try {
+                const response = await fetch('/api/smart_search', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ query: query })
+                });
+                
+                const data = await response.json();
+                if (!data.keywords || data.keywords.length === 0) {
+                    aiKeywords = [query.toLowerCase()]; 
+                } else {
+                    aiKeywords = data.keywords; 
+                }
+
+                applyFilters(); 
+
+            } catch (error) {
+                console.error("Search failed:", error);
+                aiKeywords = [query.toLowerCase()];
+                applyFilters();
+            }
+        }
 
         // --- SLIDER LOGIC ---
         let slideIndex = 0;
@@ -313,20 +355,20 @@
             }
         }
 
-        // --- LIVE SEARCH SUGGESTIONS (Option 3 Logic) ---
+        // --- LIVE SEARCH SUGGESTIONS ---
         const searchInput = document.getElementById('mainSearch');
         const suggestionBox = document.getElementById('searchSuggestions');
 
         searchInput.addEventListener('input', function(e) {
+            aiKeywords = []; // User ke type karne par purani AI search clear kar do
             const query = e.target.value.toLowerCase().trim();
 
             if (query.length < 2) {
                 suggestionBox.style.display = 'none';
-                applyFilters(); // Still clear filters if user deletes text
+                applyFilters(); 
                 return;
             }
 
-            // Filter top 6 matches from current dataset
             const matches = fullDataStore.filter(p =>
                 p['Product Name'].toLowerCase().includes(query)
             ).slice(0, 6);
@@ -347,11 +389,9 @@
                 suggestionBox.style.display = 'block';
             }
 
-            // Real-time grid filtering as well
             applyFilters();
         });
 
-        // Close suggestions when clicking outside
         window.addEventListener('click', function(e) {
             if (!searchInput.contains(e.target) && !suggestionBox.contains(e.target)) {
                 suggestionBox.style.display = 'none';
@@ -361,7 +401,7 @@
         function selectSuggestion(name) {
             searchInput.value = name;
             suggestionBox.style.display = 'none';
-            applyFilters();
+            triggerSearch(); // Suggestion select karne par foran search shuru ho jayegi
         }
 
         // --- QUICK VIEW LOGIC ---
@@ -484,7 +524,6 @@
             }
             document.getElementById('brand-section').style.display = 'none';
 
-            // Simulating network delay for effect
             setTimeout(() => {
                 fetch(`/api/data/${encodeURIComponent(slug)}`)
                   .then(res => res.json())
@@ -635,25 +674,66 @@
 
         function applyFilters() {
             let temp = [...fullDataStore];
-            const searchTerm = document.getElementById('mainSearch').value.toLowerCase();
+            const searchInput = document.getElementById('mainSearch');
+            const searchTerm = searchInput ? searchInput.value.toLowerCase().trim() : "";
+
             const minPrice = parseFloat(document.getElementById('minPrice').value) || 0;
             const maxPrice = parseFloat(document.getElementById('maxPrice').value) || Infinity;
             const selectedBrands = Array.from(document.querySelectorAll('.brand-checkbox:checked')).map(cb => cb.value);
             const sortValue = document.getElementById('sortSelect').value;
 
-            if (searchTerm) temp = temp.filter(p => p['Product Name'].toLowerCase().includes(searchTerm));
+            // --- SMART SEARCH FILTER LOGIC ---
+            if (aiKeywords && aiKeywords.length > 0) {
+                temp = temp.filter(p => {
+                    const productName = (p['Product Name'] || "").toLowerCase();
+                    const productCategory = (p['Categories'] || "").toLowerCase();
+                    return aiKeywords.some(word =>
+                        productName.includes(word) || productCategory.includes(word)
+                    );
+                });
+            } else if (searchTerm) {
+                const keywords = searchTerm.split(/\s+/);
+                temp = temp.filter(p => {
+                    const productName = (p['Product Name'] || "").toLowerCase();
+                    const productCategory = (p['Categories'] || "").toLowerCase();
+                    return keywords.every(word =>
+                        productName.includes(word) || productCategory.includes(word)
+                    );
+                });
+            }
+
+            // --- PRICE FILTER ---
             temp = temp.filter(p => {
-                const price = parseFloat(p['Sale Price']);
+                const price = parseFloat(p['Sale Price']) || 0;
                 return price >= minPrice && price <= maxPrice;
             });
-            if (selectedBrands.length > 0) temp = temp.filter(p => selectedBrands.includes(p['Brand Name']));
 
-            if (sortValue === 'price_asc') temp.sort((a, b) => parseFloat(a['Sale Price']) - parseFloat(b['Sale Price']));
-            else if (sortValue === 'price_desc') temp.sort((a, b) => parseFloat(b['Sale Price']) - parseFloat(a['Sale Price']));
-            else if (sortValue === 'rating') temp.sort((a, b) => (b['Rating'] || 0) - (a['Rating'] || 0));
-            else if (sortValue === 'discount') temp.sort((a, b) => (b.Discount_Pct || 0) - (a.Discount_Pct || 0));
+            // --- BRAND FILTER ---
+            if (selectedBrands.length > 0) {
+                temp = temp.filter(p => selectedBrands.includes(p['Brand Name']));
+            }
 
-            document.getElementById('stats-label').innerText = `${temp.length} Products Found`;
+            // --- SORTING ---
+            if (sortValue === 'price_asc') {
+                temp.sort((a, b) => parseFloat(a['Sale Price']) - parseFloat(b['Sale Price']));
+            } else if (sortValue === 'price_desc') {
+                temp.sort((a, b) => parseFloat(b['Sale Price']) - parseFloat(a['Sale Price']));
+            } else if (sortValue === 'rating') {
+                temp.sort((a, b) => (parseFloat(b['Rating']) || 0) - (parseFloat(a['Rating']) || 0));
+            } else if (sortValue === 'discount') {
+                temp.sort((a, b) => (parseFloat(b.Discount_Pct) || 0) - (parseFloat(a.Discount_Pct) || 0));
+            }
+
+            // --- UPDATE UI STATS ---
+            const statsLabel = document.getElementById('stats-label');
+            if (statsLabel) {
+                if (aiKeywords && aiKeywords.length > 0) {
+                    statsLabel.innerText = `✅ AI Result: ${temp.length} Products Found`;
+                } else {
+                    statsLabel.innerText = `${temp.length} Products Found`;
+                }
+            }
+
             renderCards(temp);
         }
 
@@ -673,6 +753,14 @@
                 const isCompared = compareList.includes(p['Product URL']);
                 const shareText = encodeURIComponent(`Check this out: ${p['Product Name']} for Rs. ${parseFloat(p['Sale Price']).toLocaleString()} \nLink: ${p['Product URL']}`);
                 const whatsappLink = `https://wa.me/?text=${shareText}`;
+
+                const sentimentHtml = p.Review_Count > 0 ? `
+                    <div class="sentiment-container" title="Pos: ${p.Pos_Pct}% | Neu: ${p.Neu_Pct}% | Neg: ${p.Neg_Pct}%">
+                        <span class="sent-tag pos">${p.Pos_Pct}%</span>
+                        <span class="sent-tag neu">${p.Neu_Pct}%</span>
+                        <span class="sent-tag neg">${p.Neg_Pct}%</span>
+                    </div>
+                ` : '';
 
                 return `
                     <article class="product-card">
@@ -706,10 +794,13 @@
                                 <span class="price-now">Rs. ${parseFloat(p['Sale Price']).toLocaleString()}</span>
                                 ${discount > 0 ? `<span class="price-was">Rs. ${parseFloat(p['Regular Price']).toLocaleString()}</span>` : ''}
                             </div>
-                            <div class="review-row" onclick="openReviews('${p['Product URL']}')">
+
+                            <div class="review-row" onclick="openReviews('${p['Product URL']}')" style="display: flex; align-items: center; gap: 8px;">
                                 <span class="stars"><i class="fas fa-star"></i> ${p['Rating'] || '4.0'}</span>
                                 <span class="rev-count">(${p['Review_Count']})</span>
+                                ${sentimentHtml}
                             </div>
+
                             <div class="action-row">
                                 <a href="${p['Product URL']}" target="_blank" class="view-btn" onclick="addToHistory('${p['Product URL']}')">View Deal <i class="fas fa-external-link-alt"></i></a>
                                 <a href="${whatsappLink}" target="_blank" class="whatsapp-btn" title="Share on WhatsApp"><i class="fab fa-whatsapp"></i></a>

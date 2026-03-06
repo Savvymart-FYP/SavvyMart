@@ -87,6 +87,25 @@ html, body {
     margin-top: 5px;
 }
 
+/* The Sentiment Container */
+.sentiment-container {
+    display: flex;
+    gap: 3px;
+    margin-left: auto; /* Is se ye review count ke right side par push ho jayega */
+    font-size: 0.65rem;
+    font-weight: bold;
+}
+
+.sent-tag {
+    padding: 2px 5px;
+    border-radius: 4px;
+    color: white;
+}
+
+.sent-tag.pos { background-color: #28a745; } /* Green */
+.sent-tag.neu { background-color: #6c757d; } /* Gray */
+.sent-tag.neg { background-color: #dc3545; } /* Red */
+
 /* Individual Suggestion Item */
 .suggestion-item {
     padding: 10px 15px;
@@ -377,6 +396,50 @@ body.dark-mode .suggestion-item img { background: white; }
 
 .review-row { font-size: 0.75rem; cursor: pointer; color: #d97706; display: flex; align-items: center; gap: 5px; margin-bottom: 12px; }
 
+.smart-search-container {
+    display: flex;
+    max-width: 600px;
+    width: 100%;
+    margin: 15px 0;
+    gap: 10px;
+}
+
+#smartSearchInput {
+    flex: 1;
+    padding: 10px 15px;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    font-size: 0.95rem;
+    outline: none;
+    transition: border-color 0.3s ease;
+}
+
+#smartSearchInput:focus {
+    border-color: var(--primary);
+}
+
+#searchBtn {
+    padding: 10px 20px;
+    background-color: var(--primary);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background-color 0.3s;
+}
+
+#searchBtn:hover {
+    background-color: var(--primary-hover);
+}
+
+.search-status {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    margin-bottom: 15px;
+    font-style: italic;
+    min-height: 18px;
+}
 /* ACTION BUTTONS ROW */
 .action-row {
     display: flex; gap: 10px; margin-top: auto;
