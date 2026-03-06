@@ -1,3 +1,52 @@
+# import pandas as pd
+# import nltk
+# from nltk.tokenize import word_tokenize
+# from nltk.stem import WordNetLemmatizer
+
+# # 1. Zaroori resources
+# nltk.download('punkt')
+# nltk.download('punkt_tab')
+# nltk.download('wordnet')
+# nltk.download('omw-1.4')
+
+# # Path set karein
+# input_file = r'E:\SavvyMart\NLP_Pipeline\fake_reviews_dataset.csv'
+# output_file = r'E:\SavvyMart\NLP_Pipeline\cleaned_fake_reviews.csv' # Nayi file ka naam
+
+# # 2. Data Load karein
+# df = pd.read_csv(input_file)
+
+# # 3. Lemmatizer initialize
+# lemmatizer = WordNetLemmatizer()
+
+# # 4. Lemmatization Function
+# def lemmatize_text(text):
+#     if isinstance(text, str):
+#         tokens = word_tokenize(text.lower())
+#         # Lemmatize verbs (actioning -> action) aur nouns (actions -> action)
+#         lemmatized_output = [lemmatizer.lemmatize(w, pos='v') for w in tokens]
+#         # Dobara join karein tokens ko string banane ke liye
+#         return " ".join(lemmatized_output)
+#     return str(text)
+
+# # 5. Column update karein
+# print("Cleaning and Lemmatizing... Please wait.")
+# df['text_'] = df['text_'].apply(lemmatize_text)
+
+# # 6. NAYI FILE SAVE KAREIN
+# # index=False taake extra columns na banein
+# df.to_csv(output_file, index=False)
+
+# print("-" * 30)
+# print(f"Done! Cleaned data save ho gaya hai yahan: \n{output_file}")
+# print("-" * 30)
+# print(df[['text_']].head())
+
+# # Optional: Processed data ko save karne ke liye
+# # df.to_csv('cleaned_dataset.csv', index=False)
+# # Ab aap is par TF-IDF ya CountVectorizer chala sakte hain
+
+
 import pandas as pd
 import re
 import string
@@ -9,7 +58,7 @@ from tqdm import tqdm # Progress bar dekhne ke liye
 import pkg_resources
 from symspellpy import SymSpell, Verbosity
 
-df = pd.read_csv(r'E:\SavvyMart\Model_Training\fake_reviews_dataset.csv')
+df = pd.read_csv(r'E:\SavvyMart\NLP_Pipeline\fake_reviews_dataset.csv')
 
 #---------This line converted the review column into lower case letters---------
 
