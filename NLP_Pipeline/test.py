@@ -1,148 +1,89 @@
 import os
 import re
-import string
 import joblib
 import numpy as np
 import scipy.sparse as sp
 from groq import Groq
-import nltk
 from nltk.corpus import stopwords
 from nltk.tokenize import word_tokenize
 from dotenv import load_dotenv
+import nltk
 
-# Download NLTK data automatically
+# Initialize dependencies
 nltk.download('stopwords', quiet=True)
 nltk.download('punkt', quiet=True)
 stop_words = set(stopwords.words('english'))
+load_dotenv()
 
-# ==========================================
-# 0. LOAD MACHINE LEARNING MODELS
-# ==========================================
-print("Loading Machine Learning Models...")
+# 1. Load Models & API
 current_dir = os.path.dirname(os.path.abspath(__file__))
 try:
     vectorizer = joblib.load(os.path.join(current_dir, 'tfidf_vectorizer.pkl'))
     model = joblib.load(os.path.join(current_dir, 'tf_idf_model_1.pkl'))
     encoder = joblib.load(os.path.join(current_dir, 'label_encoder.pkl'))
-    print("Models Loaded Successfully!\n")
+    client = Groq(api_key=os.getenv("MY_SECRET_API_KEY"))
+    print("System ready for live testing.")
 except Exception as e:
-    print(f"Error loading PKL files: {e}")
+    print(f"Error loading assets: {e}")
     exit()
 
-# ==========================================
-# 1. API SETUP
-# ==========================================
-# Yahan apni asli Groq API key daalein
-load_dotenv()
-GROQ_API_KEY = os.getenv("MY_SECRET_API_KEY")
-
-try:
-    client = Groq(api_key=GROQ_API_KEY)
-except Exception as e:
-    print(f"API Client setup mein masla: {e}")
-    exit()
-
-# ==========================================
-# 2. CORE TRANSLATION FUNCTION
-# ==========================================
-def translate_to_english(roman_urdu_text):
-    system_prompt = """
-    You are an expert linguist and translator. Your ONLY job is to translate Roman Urdu/Hindi text into natural, grammatically correct English.
-    
-    IMPORTANT RULES:
-    1. The input will contain heavy slang, SMS language (e.g., 'rye', 'mjy', 'kia', 'hogea', 'bkws', 'yr'), and typos. Understand the contextual meaning.
-    2. Provide ONLY the final English translation.
-    3. DO NOT add any conversational text, explanations, or quotes.
-    4. If the text is already in English, just return it as is or correct its grammar.
-    """
+# 2. Core Functions
+def translate_to_english(text):
+    prompt = "Translate Roman Urdu/slang to English. Return ONLY the translation."
     try:
-        chat_completion = client.chat.completions.create(
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": roman_urdu_text}
-            ],
-            model="llama-3.3-70b-versatile", 
-            temperature=0.2, 
-            max_tokens=200   
+        resp = client.chat.completions.create(
+            messages=[{"role": "system", "content": prompt}, {"role": "user", "content": text}],
+            model="llama-3.3-70b-versatile",
+            temperature=0.2
         )
-        result = chat_completion.choices[0].message.content.strip(' "')
-        return result
-    except Exception as e:
-        return f"Error: API ya Internet ka masla hai -> {str(e)}"
+        return resp.choices[0].message.content.strip()
+    except:
+        return None
 
-# ==========================================
-# 3. PREPROCESSING FUNCTION
-# ==========================================
 def preprocess_text(text):
-    text = text.lower()
-    text = text.encode("ascii", "ignore").decode("ascii")
+    text = text.lower().encode("ascii", "ignore").decode("ascii")
     text = re.sub(r'[^a-z\s]', '', text)
-    tokens = word_tokenize(text)
-    tokens = [t for t in tokens if t not in stop_words]
+    tokens = [t for t in word_tokenize(text) if t not in stop_words]
     return " ".join(tokens)
 
-# ==========================================
-# 4. LIVE CHAT LOOP & PIPELINE
-# ==========================================
-print("=" * 65)
-print("🚀 SAVVYMART AI FRAUD REVIEW DETECTOR STARTED!")
-print("Type 'exit' in the review section to stop the program.")
-print("=" * 65)
+# 3. Unit Test (Automated check)
+def run_unit_test():
+    sample = "BKWS! product."
+    result = preprocess_text(sample)
+    if "!" not in result and result == result.lower():
+        print("Unit Test: Preprocessing OK")
+    else:
+        raise ValueError("Preprocessing logic failed.")
 
+run_unit_test()
+
+# 4. Live Testing Loop
+print("-" * 30)
 while True:
-    # USER SE SIRF 2 INPUTS: Review aur Rating
-    user_input = input("\n📝 Roman Urdu Review: ").strip()
-    
-    if user_input.lower() in ['exit', 'quit', 'stop']:
-        print("Khuda Hafiz! Bhai ka program band ho raha hai.")
-        break
-        
-    if not user_input:
-        print("Kuch likh toh do bhai!")
-        continue
-        
-    try:
-        user_rating = float(input("⭐ Rating (1 to 5): "))
-    except ValueError:
-        print("⚠️ Invalid rating! Please enter a number.")
-        continue
-        
-    # FLOW START
-    print("⏳ Translating (AI dimaagh laga raha hai)...")
-    english_translation = translate_to_english(user_input)
-    
-    if "Error:" in english_translation:
-        print(f"Translation Failed: {english_translation}")
-        continue
-        
-    print(f"English    : {english_translation}")
-
-    print("Preprocessing text...")
-    cleaned_text = preprocess_text(english_translation)
-    print(f"   -> Cleaned : {cleaned_text}")
+    user_review = input("\nEnter Roman Urdu Review (or 'exit'): ").strip()
+    if user_review.lower() == 'exit': break
     
     try:
-        print("🧮 Extracting features (Background logic applied)...")
-        # 1. TF-IDF features (10000 columns)
-        tfidf_features = vectorizer.transform([cleaned_text])
+        rating = float(input("Enter Rating (1-5): "))
         
-        # 2. Background variables calculation (Length and Word Count)
-        text_length = len(cleaned_text)
-        word_count = len(cleaned_text.split())
+        # Pipeline: Translation -> Preprocessing -> Feature Extraction
+        translated = translate_to_english(user_review)
+        if not translated: 
+            print("Translation Error.")
+            continue
+            
+        cleaned = preprocess_text(translated)
         
-        # 3. Combining all features: Rating, Length, Word Count (3 columns)
-        extras = np.array([[user_rating, text_length, word_count]])
+        # Create final feature vector
+        tfidf_feat = vectorizer.transform([cleaned])
+        extras = np.array([[rating, len(cleaned), len(cleaned.split())]])
+        final_input = sp.hstack([tfidf_feat, sp.csr_matrix(extras)])
         
-        # Total Features: 10000 + 3 = 10003 columns
-        final_features = sp.hstack([tfidf_features, sp.csr_matrix(extras)])
-        prediction = model.predict(final_features)
+        # Prediction
+        pred = model.predict(final_input)
+        label = encoder.inverse_transform(pred)
         
-        # Decoding Prediction (0/1 to Text)
-        final_label = encoder.inverse_transform(prediction)
-        
-        print("-" * 50)
-        print(f"This review is {final_label[0].upper()}!")
-        print("-" * 50)
-        
+        print(f"English: {translated}")
+        print(f"Prediction: {label[0].upper()}")
     except Exception as e:
-        print(f"ML Pipeline Error: {e}")
+        print(f"Pipeline Error: {e}")
