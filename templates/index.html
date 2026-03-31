@@ -249,6 +249,12 @@
         let compareList = [];
         let allBrandsSelected = false;
 
+        // --- NEW PAGINATION VARIABLES ---
+        let currentPage = 1;
+        let hasMoreData = true;
+        let isLoading = false;
+        let currentCategory = 'all';
+
         // --- SLIDER LOGIC ---
         let slideIndex = 0;
         function showSlides() {
@@ -277,6 +283,64 @@
             slides[n].classList.add("active");
             dots[n].classList.add("active");
         }
+
+        // --- UPDATED DATA FETCHING WITH INFINITE SCROLL ---
+        function fetchMarketData(slug, btn = null) {
+            currentMode = 'market';
+            currentCategory = slug;
+            currentPage = 1; // Reset to first page
+            hasMoreData = true;
+            fullDataStore = []; // Clear current list
+
+            const grid = document.getElementById('product-grid');
+            document.getElementById('market-title').innerText = slug === 'all' ? "Todays Picks" : slug + " Deals";
+            document.getElementById('stats-label').innerText = "Loading products...";
+
+            showSkeleton();
+
+            if(btn) {
+                document.querySelectorAll('.category-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+            }
+            document.getElementById('brand-section').style.display = 'none';
+
+            loadProductsFromServer();
+        }
+
+        function loadProductsFromServer() {
+            if (isLoading || !hasMoreData) return;
+            isLoading = true;
+
+            fetch(`/api/data/${encodeURIComponent(currentCategory)}?page=${currentPage}&limit=8`)
+                .then(res => res.json())
+                .then(resp => {
+                    if(resp.status === 'success') {
+                        // Naye products ko purane data mein append karna
+                        fullDataStore = [...fullDataStore, ...resp.data];
+                        hasMoreData = resp.has_next;
+
+                        // FIX: Ab ye server se aane wale saare brands dikhayega
+                        generateBrandFilters(resp.brands);
+                        applyFilters(); // Ye UI render karega
+                    }
+                    isLoading = false;
+                })
+                .catch(err => {
+                    console.error(err);
+                    isLoading = false;
+                });
+        }
+
+        // --- SCROLL LISTENER FOR INFINITE LOADING ---
+        window.addEventListener('scroll', () => {
+            if (currentMode !== 'market' || isLoading || !hasMoreData) return;
+
+            // Check if user is near the bottom of the page
+            if ((window.innerHeight + window.scrollY) >= document.body.offsetHeight - 800) {
+                currentPage++;
+                loadProductsFromServer();
+            }
+        });
 
         function toggleMenu() {
             const menu = document.getElementById("mobileMenu");
@@ -313,7 +377,33 @@
             }
         }
 
-        // --- LIVE SEARCH SUGGESTIONS (Option 3 Logic) ---
+function showReviewModal(index) {
+    // FIX: Variables match kar diya gaya hai (fullDataStore)
+    const p = fullDataStore[index];
+    const modal = document.getElementById('reviewModal');
+    const content = document.getElementById('reviewContent');
+
+    content.innerHTML = (p.All_Reviews && p.All_Reviews.length > 0) ? p.All_Reviews.map(r => {
+        let label = r['Fraud_Label'] || 'Unknown';
+        let badgeClass = label.toLowerCase() === 'fake' ? 'badge-fake' : (label.toLowerCase() === 'real' ? 'badge-real' : 'badge-unknown');
+
+        return `
+        <div class="review-item">
+            <div class="rev-header">
+                <strong>${r['Reviewer Name']}</strong>
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <span class="fraud-badge ${badgeClass}">${label}</span>
+                    <span class="star-rating"><i class="fas fa-star"></i> ${r['Rating']}</span>
+                </div>
+            </div>
+            <p class="rev-body">${r['Review Body']}</p>
+        </div>
+    `}).join('') : '<p style="color:#666; font-style:italic;">No reviews available.</p>';
+
+    modal.style.display = "block";
+}
+
+        // --- LIVE SEARCH SUGGESTIONS ---
         const searchInput = document.getElementById('mainSearch');
         const suggestionBox = document.getElementById('searchSuggestions');
 
@@ -322,11 +412,10 @@
 
             if (query.length < 2) {
                 suggestionBox.style.display = 'none';
-                applyFilters(); // Still clear filters if user deletes text
+                applyFilters();
                 return;
             }
 
-            // Filter top 6 matches from current dataset
             const matches = fullDataStore.filter(p =>
                 p['Product Name'].toLowerCase().includes(query)
             ).slice(0, 6);
@@ -347,11 +436,9 @@
                 suggestionBox.style.display = 'block';
             }
 
-            // Real-time grid filtering as well
             applyFilters();
         });
 
-        // Close suggestions when clicking outside
         window.addEventListener('click', function(e) {
             if (!searchInput.contains(e.target) && !suggestionBox.contains(e.target)) {
                 suggestionBox.style.display = 'none';
@@ -468,39 +555,6 @@
             grid.innerHTML = html;
         }
 
-        // --- DATA FETCHING ---
-        function fetchMarketData(slug, btn = null) {
-            currentMode = 'market';
-            const grid = document.getElementById('product-grid');
-
-            document.getElementById('market-title').innerText = slug === 'all' ? "Todays Picks" : slug + " Deals";
-            document.getElementById('stats-label').innerText = "Scanning top stores...";
-
-            showSkeleton();
-
-            if(btn) {
-                document.querySelectorAll('.category-btn').forEach(b => b.classList.remove('active'));
-                btn.classList.add('active');
-            }
-            document.getElementById('brand-section').style.display = 'none';
-
-            // Simulating network delay for effect
-            setTimeout(() => {
-                fetch(`/api/data/${encodeURIComponent(slug)}`)
-                  .then(res => res.json())
-                  .then(resp => {
-                        if(resp.status === 'success') {
-                            fullDataStore = resp.data;
-                            generateBrandFilters(fullDataStore);
-                            applyFilters();
-                        }
-                    })
-                  .catch(err => {
-                      console.error(err);
-                      grid.innerHTML = '<p class="empty-state">Failed to load data.</p>';
-                  });
-            }, 1000);
-        }
 
         // --- WISHLIST ---
         function loadWishlist() {
@@ -606,13 +660,12 @@
         }
 
         // --- FILTERS ---
-        function generateBrandFilters(data) {
+        function generateBrandFilters(brands) {
             const brandSection = document.getElementById('brand-section');
             const container = document.getElementById('brand-list-container');
-            const brands = [...new Set(data.map(item => item['Brand Name']).filter(Boolean))].sort();
             allBrandsSelected = false;
             document.getElementById('brandToggleBtn').innerText = "Select All";
-            if (brands.length > 0) {
+            if (brands && brands.length > 0) {
                 brandSection.style.display = 'block';
                 container.innerHTML = brands.map(brand => `
                     <label class="brand-item">
@@ -634,91 +687,127 @@
         }
 
         function applyFilters() {
-            let temp = [...fullDataStore];
-            const searchTerm = document.getElementById('mainSearch').value.toLowerCase();
-            const minPrice = parseFloat(document.getElementById('minPrice').value) || 0;
-            const maxPrice = parseFloat(document.getElementById('maxPrice').value) || Infinity;
-            const selectedBrands = Array.from(document.querySelectorAll('.brand-checkbox:checked')).map(cb => cb.value);
-            const sortValue = document.getElementById('sortSelect').value;
+    let temp = [...fullDataStore];
+    const searchInput = document.getElementById('mainSearch');
+    const searchTerm = searchInput ? searchInput.value.toLowerCase().trim() : "";
 
-            if (searchTerm) temp = temp.filter(p => p['Product Name'].toLowerCase().includes(searchTerm));
-            temp = temp.filter(p => {
-                const price = parseFloat(p['Sale Price']);
-                return price >= minPrice && price <= maxPrice;
-            });
-            if (selectedBrands.length > 0) temp = temp.filter(p => selectedBrands.includes(p['Brand Name']));
+    const minPrice = parseFloat(document.getElementById('minPrice').value) || 0;
+    const maxPrice = parseFloat(document.getElementById('maxPrice').value) || Infinity;
+    const selectedBrands = Array.from(document.querySelectorAll('.brand-checkbox:checked')).map(cb => cb.value);
+    const sortValue = document.getElementById('sortSelect').value;
 
-            if (sortValue === 'price_asc') temp.sort((a, b) => parseFloat(a['Sale Price']) - parseFloat(b['Sale Price']));
-            else if (sortValue === 'price_desc') temp.sort((a, b) => parseFloat(b['Sale Price']) - parseFloat(a['Sale Price']));
-            else if (sortValue === 'rating') temp.sort((a, b) => (b['Rating'] || 0) - (a['Rating'] || 0));
-            else if (sortValue === 'discount') temp.sort((a, b) => (b.Discount_Pct || 0) - (a.Discount_Pct || 0));
+    if (searchTerm) {
+        const keywords = searchTerm.split(/\s+/);
+        temp = temp.filter(p => {
+            const productName = (p['Product Name'] || "").toLowerCase();
+            const productCategory = (p['Categories'] || "").toLowerCase();
 
-            document.getElementById('stats-label').innerText = `${temp.length} Products Found`;
-            renderCards(temp);
-        }
+            return keywords.every(word =>
+                productName.includes(word) || productCategory.includes(word)
+            );
+        });
+    }
+
+    temp = temp.filter(p => {
+        const price = parseFloat(p['Sale Price']) || 0;
+        return price >= minPrice && price <= maxPrice;
+    });
+
+    if (selectedBrands.length > 0) {
+        temp = temp.filter(p => selectedBrands.includes(p['Brand Name']));
+    }
+
+    if (sortValue === 'price_asc') {
+        temp.sort((a, b) => parseFloat(a['Sale Price']) - parseFloat(b['Sale Price']));
+    } else if (sortValue === 'price_desc') {
+        temp.sort((a, b) => parseFloat(b['Sale Price']) - parseFloat(a['Sale Price']));
+    } else if (sortValue === 'rating') {
+        temp.sort((a, b) => (parseFloat(b['Rating']) || 0) - (parseFloat(a['Rating']) || 0));
+    } else if (sortValue === 'discount') {
+        temp.sort((a, b) => (parseFloat(b.Discount_Pct) || 0) - (parseFloat(a.Discount_Pct) || 0));
+    }
+
+    const statsLabel = document.getElementById('stats-label');
+    if (statsLabel) {
+        statsLabel.innerText = `${temp.length} Products Found`;
+    }
+
+    renderCards(temp);
+}
 
         function renderCards(products) {
-            const grid = document.getElementById('product-grid');
-            const wishlist = JSON.parse(localStorage.getItem('savvyWishlist')) || [];
+    const grid = document.getElementById('product-grid');
+    const wishlist = JSON.parse(localStorage.getItem('savvyWishlist')) || [];
 
-            if (!products || products.length === 0) {
-                grid.innerHTML = '<p class="empty-state">No items match your criteria.</p>';
-                return;
-            }
-            grid.innerHTML = products.map((p) => {
-                const discount = p.Discount_Pct || 0;
-                let sourceDomain = 'Web Deal';
-                try { sourceDomain = new URL(p['Product URL']).hostname.replace('www.', ''); } catch(e) {}
-                const isSaved = wishlist.some(item => item['Product URL'] === p['Product URL']);
-                const isCompared = compareList.includes(p['Product URL']);
-                const shareText = encodeURIComponent(`Check this out: ${p['Product Name']} for Rs. ${parseFloat(p['Sale Price']).toLocaleString()} \nLink: ${p['Product URL']}`);
-                const whatsappLink = `https://wa.me/?text=${shareText}`;
+    if (!products || products.length === 0) {
+        grid.innerHTML = '<p class="empty-state">No items match your criteria.</p>';
+        return;
+    }
+    grid.innerHTML = products.map((p) => {
+        const discount = p.Discount_Pct || 0;
+        let sourceDomain = 'Web Deal';
+        try { sourceDomain = new URL(p['Product URL']).hostname.replace('www.', ''); } catch(e) {}
+        const isSaved = wishlist.some(item => item['Product URL'] === p['Product URL']);
+        const isCompared = compareList.includes(p['Product URL']);
+        const shareText = encodeURIComponent(`Check this out: ${p['Product Name']} for Rs. ${parseFloat(p['Sale Price']).toLocaleString()} \nLink: ${p['Product URL']}`);
+        const whatsappLink = `https://wa.me/?text=${shareText}`;
 
-                return `
-                    <article class="product-card">
-                        ${discount > 0 ? `<div class="discount-badge">-${discount}%</div>` : ''}
+        const sentimentHtml = p.Review_Count > 0 ? `
+            <div class="sentiment-container" title="Pos: ${p.Pos_Pct}% | Neu: ${p.Neu_Pct}% | Neg: ${p.Neg_Pct}%">
+                <span class="sent-tag pos">${p.Pos_Pct}%</span>
+                <span class="sent-tag neu">${p.Neu_Pct}%</span>
+                <span class="sent-tag neg">${p.Neg_Pct}%</span>
+            </div>
+        ` : '';
 
-                        <button class="quick-view-trigger" onclick="openQuickView(event, '${p['Product URL']}')" title="Quick View">
-                             <i class="fas fa-eye"></i>
-                        </button>
+        return `
+            <article class="product-card">
+                ${discount > 0 ? `<div class="discount-badge">-${discount}%</div>` : ''}
 
-                        <button class="${isSaved ? 'wishlist-btn active' : 'wishlist-btn'}"
-                                onclick="handleWishlistClick(event, '${p['Product URL']}')">
-                            <i class="${isSaved ? 'fas' : 'far'} fa-heart"></i>
-                        </button>
-                        <div class="compare-check-wrapper">
-                            <label title="Compare">
-                                <input type="checkbox" class="compare-checkbox"
-                                onchange="toggleCompare(event, '${p['Product URL']}')" ${isCompared ? 'checked' : ''}>
-                                <span style="font-size:0.7rem; font-weight:600; color:var(--text-light);">Compare</span>
-                            </label>
-                        </div>
+                <button class="quick-view-trigger" onclick="openQuickView(event, '${p['Product URL']}')" title="Quick View">
+                     <i class="fas fa-eye"></i>
+                </button>
 
-                        <div class="img-wrapper">
-                            <img src="${p['Image URL']}" loading="lazy" onerror="this.src='https://via.placeholder.com/150'">
-                             <div class="source-badge">${sourceDomain}</div>
-                        </div>
+                <button class="${isSaved ? 'wishlist-btn active' : 'wishlist-btn'}"
+                        onclick="handleWishlistClick(event, '${p['Product URL']}')">
+                    <i class="${isSaved ? 'fas' : 'far'} fa-heart"></i>
+                </button>
+                <div class="compare-check-wrapper">
+                    <label title="Compare">
+                        <input type="checkbox" class="compare-checkbox"
+                        onchange="toggleCompare(event, '${p['Product URL']}')" ${isCompared ? 'checked' : ''}>
+                        <span style="font-size:0.7rem; font-weight:600; color:var(--text-light);">Compare</span>
+                    </label>
+                </div>
 
-                        <div class="card-body">
-                            <span class="brand-label">${p['Brand Name'] || 'Verified Deal'}</span>
-                            <h4 class="product-title">${p['Product Name']}</h4>
-                            <div class="price-box">
-                                <span class="price-now">Rs. ${parseFloat(p['Sale Price']).toLocaleString()}</span>
-                                ${discount > 0 ? `<span class="price-was">Rs. ${parseFloat(p['Regular Price']).toLocaleString()}</span>` : ''}
-                            </div>
-                            <div class="review-row" onclick="openReviews('${p['Product URL']}')">
-                                <span class="stars"><i class="fas fa-star"></i> ${p['Rating'] || '4.0'}</span>
-                                <span class="rev-count">(${p['Review_Count']})</span>
-                            </div>
-                            <div class="action-row">
-                                <a href="${p['Product URL']}" target="_blank" class="view-btn" onclick="addToHistory('${p['Product URL']}')">View Deal <i class="fas fa-external-link-alt"></i></a>
-                                <a href="${whatsappLink}" target="_blank" class="whatsapp-btn" title="Share on WhatsApp"><i class="fab fa-whatsapp"></i></a>
-                            </div>
-                        </div>
-                    </article>
-                `;
-            }).join('');
-        }
+                <div class="img-wrapper">
+                    <img src="${p['Image URL']}" loading="lazy" onerror="this.src='https://via.placeholder.com/150'">
+                     <div class="source-badge">${sourceDomain}</div>
+                </div>
+
+                <div class="card-body">
+                    <span class="brand-label">${p['Brand Name'] || 'Verified Deal'}</span>
+                    <h4 class="product-title">${p['Product Name']}</h4>
+                    <div class="price-box">
+                        <span class="price-now">Rs. ${parseFloat(p['Sale Price']).toLocaleString()}</span>
+                        ${discount > 0 ? `<span class="price-was">Rs. ${parseFloat(p['Regular Price']).toLocaleString()}</span>` : ''}
+                    </div>
+
+                    <div class="review-row" onclick="openReviews('${p['Product URL']}')" style="display: flex; align-items: center; gap: 8px;">
+                        <span class="stars"><i class="fas fa-star"></i> ${p['Rating'] || '4.0'}</span>
+                        <span class="rev-count">(${p['Review_Count']})</span>
+                        ${sentimentHtml}
+                    </div>
+
+                    <div class="action-row">
+                        <a href="${p['Product URL']}" target="_blank" class="view-btn" onclick="addToHistory('${p['Product URL']}')">View Deal <i class="fas fa-external-link-alt"></i></a>
+                        <a href="${whatsappLink}" target="_blank" class="whatsapp-btn" title="Share on WhatsApp"><i class="fab fa-whatsapp"></i></a>
+                    </div>
+                </div>
+            </article>
+        `;
+    }).join('');
+}
 
         function openReviews(productUrl) {
             const p = fullDataStore.find(x => x['Product URL'] === productUrl);
